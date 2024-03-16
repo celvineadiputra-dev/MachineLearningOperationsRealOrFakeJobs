@@ -15,5 +15,5 @@ Pipeline ini diharapkan mampu menyelesaikan tugas JOB POSTING PREDICTION dengan 
 - [X] Evaluator
 - [X] Pusher
 - [ ] Memanfaatkan komponen Tuner untuk menjalankan proses hyperparameter tuning secara otomatis.
-- [ ] Menambahkan tahapan model deployment dengan TensorFlow Serving.
-- [ ] Menambahkan sebuah berkas notebook untuk menguji dan melakukan prediction request ke model serving yang telah dibuat.
+- [X] Menambahkan tahapan model deployment dengan TensorFlow Serving.
+- [X] Menambahkan sebuah berkas notebook untuk menguji dan melakukan prediction request ke model serving yang telah dibuat.
