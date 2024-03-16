@@ -6,6 +6,7 @@ from nltk.corpus import stopwords
 
 nltk.download('punkt')
 nltk.download('stopwords')
+spacy.cli.download('en_core_web_sm')
 
 # python -m spacy download en_core_web_sm
 nlp = spacy.load('en_core_web_sm')

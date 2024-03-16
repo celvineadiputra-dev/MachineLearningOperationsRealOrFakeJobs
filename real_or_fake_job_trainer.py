@@ -6,16 +6,13 @@ import tensorflow_hub as hub
 from tfx.components.trainer.fn_args_utils import FnArgs
 
 LABEL_KEY = "fraudulent"
-FEATURE_KEY = "fulldescription"
-
+FEATURE_KEY = "full_description"
 
 def transformed_name(key):
-    """Renaming transformed features"""
     return key + "_xf"
 
 
 def gzip_reader_fn(filenames):
-    """Loads compressed data"""
     return tf.data.TFRecordDataset(filenames, compression_type='GZIP')
 
 
@@ -23,7 +20,6 @@ def input_fn(file_pattern,
              tf_transform_output,
              num_epochs,
              batch_size=64) -> tf.data.Dataset:
-    """Get post_tranform feature & create batches of data"""
 
     # Get post_transform feature spec
     transform_feature_spec = (

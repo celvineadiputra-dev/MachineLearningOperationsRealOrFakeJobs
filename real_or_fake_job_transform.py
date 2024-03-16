@@ -1,7 +1,7 @@
 import tensorflow as tf
 
 LABEL_KEY = "fraudulent"
-FEATURE_KEY = "fulldescription"
+FEATURE_KEY = "full_description"
 
 def transformed_name(key):
     return key + "_xf"
