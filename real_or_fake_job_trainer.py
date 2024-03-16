@@ -6,7 +6,7 @@ import tensorflow_hub as hub
 from tfx.components.trainer.fn_args_utils import FnArgs
 
 LABEL_KEY = "fraudulent"
-FEATURE_KEY = "full_description"
+FEATURE_KEY = "fulldescription"
 
 
 def transformed_name(key):
@@ -40,8 +40,8 @@ def input_fn(file_pattern,
     return dataset
 
 
-os.environ['TFHUB_CACHE_DIR'] = '/hub_chace'
-embed = hub.KerasLayer("https://tfhub.dev/google/universal-sentence-encoder/4")
+# os.environ['TFHUB_CACHE_DIR'] = '/hub_chace'
+# embed = hub.KerasLayer("https://tfhub.dev/google/universal-sentence-encoder/4")
 
 VOCAB_SIZE = 10000
 SEQUENCE_LENGTH = 100
@@ -52,8 +52,11 @@ vectorize_layer = layers.TextVectorization(
     output_mode='int',
     output_sequence_length=SEQUENCE_LENGTH)
 
-embedding_dim = 16
 
+# import tensorflow_hub as hub
+# embedding = hub.load("https://www.kaggle.com/models/google/universal-sentence-encoder/frameworks/TensorFlow2/variations/universal-sentence-encoder/versions/2")
+
+embedding_dim = 16
 
 def model_builder():
     inputs = tf.keras.Input(shape=(1,), name=transformed_name(FEATURE_KEY), dtype=tf.string)
