@@ -1,12 +1,20 @@
+
+import os
 import tensorflow as tf
 import tensorflow_transform as tft
-from tensorflow.keras import layers
-import os
-import tensorflow_hub as hub
+from keras import layers
 from tfx.components.trainer.fn_args_utils import FnArgs
 
 LABEL_KEY = "fraudulent"
 FEATURE_KEY = "full_description"
+
+early_stopping_callback = tf.keras.callbacks.EarlyStopping(
+    monitor="val_binary_accuracy",
+    mode="max",
+    verbose=1,
+    patience=10,
+)
+
 
 def transformed_name(key):
     return key + "_xf"
@@ -54,26 +62,37 @@ vectorize_layer = layers.TextVectorization(
 
 embedding_dim = 16
 
-def model_builder():
-    inputs = tf.keras.Input(shape=(1,), name=transformed_name(FEATURE_KEY), dtype=tf.string)
-    reshaped_narrative = tf.reshape(inputs, [-1])
-    x = vectorize_layer(reshaped_narrative)
-    x = layers.Embedding(VOCAB_SIZE, embedding_dim, name="embedding")(x)
-    x = layers.GlobalAveragePooling1D()(x)
-    x = layers.Dense(64, activation='relu')(x)
-    x = layers.Dense(32, activation="relu")(x)
-    outputs = layers.Dense(1, activation='sigmoid')(x)
+def model_builder(vectorizer_layer, hyperparameters):
+    inputs = tf.keras.Input(
+        shape=(1,), name=transformed_name(FEATURE_KEY), dtype=tf.string
+    )
+
+    x = vectorizer_layer(inputs)
+    x = layers.Embedding(
+        input_dim=5000,
+        output_dim=hyperparameters["embed_dims"])(x)
+    x = layers.Bidirectional(layers.LSTM(hyperparameters["lstm_units"]))(x)
+
+    for _ in range(hyperparameters["num_hidden_layers"]):
+        x = layers.Dense(
+            hyperparameters["dense_units"],
+            activation=tf.nn.relu)(x)
+        x = layers.Dropout(hyperparameters["dropout_rate"])(x)
+
+    outputs = layers.Dense(1, activation=tf.nn.sigmoid)(x)
 
     model = tf.keras.Model(inputs=inputs, outputs=outputs)
 
     model.compile(
-        loss='binary_crossentropy',
-        optimizer=tf.keras.optimizers.Adam(0.01),
-        metrics=[tf.keras.metrics.BinaryAccuracy()]
-
+        optimizer=tf.keras.optimizers.Adam(
+            learning_rate=hyperparameters["learning_rate"]),
+        loss=tf.keras.losses.BinaryCrossentropy(),
+        metrics=[
+            tf.keras.metrics.BinaryAccuracy()],
     )
 
     model.summary()
+
     return model
 
 
@@ -97,43 +116,78 @@ def _get_serve_tf_examples_fn(model, tf_transform_output):
 
 
 def run_fn(fn_args: FnArgs) -> None:
-    log_dir = os.path.join(os.path.dirname(fn_args.serving_model_dir), 'logs')
+    hyperparameters = fn_args.hyperparameters["values"]
+
+    log_dir = os.path.join(os.path.dirname(fn_args.serving_model_dir), "logs")
 
     tensorboard_callback = tf.keras.callbacks.TensorBoard(
-        log_dir=log_dir, update_freq='batch'
+        log_dir=log_dir, update_freq="batch"
     )
 
-    es = tf.keras.callbacks.EarlyStopping(monitor='val_binary_accuracy', mode='max', verbose=1, patience=10)
-    mc = tf.keras.callbacks.ModelCheckpoint(fn_args.serving_model_dir, monitor='val_binary_accuracy', mode='max',
-                                            verbose=1, save_best_only=True)
+    model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
+        fn_args.serving_model_dir,
+        monitor="val_binary_accuracy",
+        mode="max",
+        verbose=1,
+        save_best_only=True,
+    )
 
-    # Load the transform output
+    callbacks = [
+        tensorboard_callback,
+        early_stopping_callback,
+        model_checkpoint_callback
+    ]
+
     tf_transform_output = tft.TFTransformOutput(fn_args.transform_graph_path)
 
-    # Create batches of data
-    train_set = input_fn(fn_args.train_files, tf_transform_output, 10)
-    val_set = input_fn(fn_args.eval_files, tf_transform_output, 10)
-    vectorize_layer.adapt(
-        [j[0].numpy()[0] for j in [
-            i[0][transformed_name(FEATURE_KEY)]
-            for i in list(train_set)]])
+    train_set = input_fn(
+        fn_args.train_files,
+        tf_transform_output,
+        hyperparameters["tuner/epochs"])
 
-    # Build the model
-    model = model_builder()
+    eval_set = input_fn(
+        fn_args.eval_files,
+        tf_transform_output,
+        hyperparameters["tuner/epochs"])
 
-    # Train the model
-    model.fit(x=train_set,
-              validation_data=val_set,
-              callbacks=[tensorboard_callback, es, mc],
-              steps_per_epoch=1000,
-              validation_steps=1000,
-              epochs=10)
+    vectorizer_dataset = train_set.map(
+        lambda f, l: f[transformed_name(FEATURE_KEY)]
+    )
+
+    vectorizer_layer = layers.TextVectorization(
+        max_tokens=5000,
+        output_mode="int",
+        output_sequence_length=500,
+    )
+
+    vectorizer_layer.adapt(vectorizer_dataset)
+
+    model = model_builder(vectorizer_layer, hyperparameters)
+
+    model.fit(
+        x=train_set,
+        steps_per_epoch=fn_args.train_steps,
+        validation_data=eval_set,
+        validation_steps=fn_args.eval_steps,
+        callbacks=callbacks,
+        epochs=hyperparameters["tuner/epochs"],
+        verbose=1,
+    )
+
     signatures = {
-        'serving_default':
-            _get_serve_tf_examples_fn(model, tf_transform_output).get_concrete_function(
-                tf.TensorSpec(
-                    shape=[None],
-                    dtype=tf.string,
-                    name='examples'))
+        "serving_default": _get_serve_tf_examples_fn(
+            model, tf_transform_output
+        ).get_concrete_function(
+            tf.TensorSpec(
+                shape=[None],
+                dtype=tf.string,
+                name="examples",
+            )
+        )
     }
-    model.save(fn_args.serving_model_dir, save_format='tf', signatures=signatures)
+
+    model.save(
+        fn_args.serving_model_dir,
+        save_format="tf",
+        signatures=signatures
+    )
